@@ -1,0 +1,66 @@
+name: Build and Push to ECR
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/<GITHUB_OIDC_ROLE>
+          aws-region: us-east-1
+
+      - name: Create ECR repo if missing
+        run: |
+          aws ecr describe-repositories --repository-names flask-ecr-demo || \
+          aws ecr create-repository \
+            --repository-name flask-ecr-demo \
+            --region ap-southeast-1 \
+            --image-scanning-configuration scanOnPush=true \
+            --encryption-configuration encryptionType=AES256
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and tag Docker image
+        run: |
+          IMAGE_URI=255945442255.dkr.ecr.us-east-1.amazonaws.com/flask-ecr-demo 
+          docker build -t $IMAGE_URI:latest -t $IMAGE_URI:${{ github.sha }} .
+
+      - name: Push Docker image to ECR
+        run: |
+          IMAGE_URI=255945442255.dkr.ecr.us-east-1.amazonaws.com/flask-ecr-demo
+          docker push $IMAGE_URI:latest
+          docker push $IMAGE_URI:${{ github.sha }}
+
+      - name: Inject SHA into ECS task definition
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          sed "s/{{IMAGE_TAG}}/$IMAGE_TAG/" ecs-task-def.json > ecs-task-def-temp.json
+
+      - name: Register ECS task definition
+        run: |
+          aws ecs register-task-definition \
+            --cli-input-json file://ecs-task-def-temp.json
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+          --cluster flask-ecr-cluster \
+          --service flask-ecr-service \
+          --force-new-deployment
