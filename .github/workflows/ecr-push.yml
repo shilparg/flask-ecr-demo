@@ -32,6 +32,9 @@ jobs:
       - name: Set IMAGE_URI
         run: echo "IMAGE_URI=255945442255.dkr.ecr.${AWS_REGION}.amazonaws.com/flask-ecr-demo" >> $GITHUB_ENV
 
+      - name: Validate AWS credentials
+        run: aws sts get-caller-identity
+
       - name: Create ECR repo if missing
         run: |
           aws ecr describe-repositories --repository-names flask-ecr-demo || \
