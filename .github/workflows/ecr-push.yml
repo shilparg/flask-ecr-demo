@@ -12,11 +12,90 @@ jobs:
       contents: read
 
     steps:
+      # ─────────────────────────────────────────────────────────────
+      #  Checkout source code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────────────────────────
+      #  Configure AWS credentials via GitHub OIDC
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v3
         with:
           role-to-assume: arn:aws:iam::255945442255:role/GITHUB_OIDC_ROLE
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Validate role assumption
-        run: aws sts get-caller-identity --output json
+      # ─────────────────────────────────────────────────────────────
+      #  Validate AWS identity
+      - name: Validate AWS credentials
+        run: aws sts get-caller-identity --query "Arn" --output text
+
+      # ─────────────────────────────────────────────────────────────
+      #  Set ECR image URI
+      - name: Set IMAGE_URI
+        run: echo "IMAGE_URI=255945442255.dkr.ecr.${AWS_REGION}.amazonaws.com/flask-ecr-demo" >> $GITHUB_ENV
+
+      # ─────────────────────────────────────────────────────────────
+      #  Create ECR repo if missing
+      - name: Create ECR repo if missing
+        run: |
+          aws ecr describe-repositories --repository-names flask-ecr-demo || \
+          aws ecr create-repository \
+            --repository-name flask-ecr-demo \
+            --region $AWS_REGION \
+            --image-scanning-configuration scanOnPush=true \
+            --encryption-configuration encryptionType=AES256 \
+            --output json
+
+      # ─────────────────────────────────────────────────────────────
+      #  Login to ECR
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ─────────────────────────────────────────────────────────────
+      #  Build and tag Docker image
+      - name: Build and tag Docker image
+        run: |
+          docker build -t $IMAGE_URI:latest -t $IMAGE_URI:$IMAGE_TAG .
+
+      # ─────────────────────────────────────────────────────────────
+      #  Push Docker image to ECR
+      - name: Push Docker image to ECR
+        run: |
+          docker push $IMAGE_URI:latest
+          docker push $IMAGE_URI:$IMAGE_TAG
+
+      # ─────────────────────────────────────────────────────────────
+      #  Inject SHA into ECS task definition
+      - name: Inject SHA into ECS task definition
+        run: |
+          sed "s/{{IMAGE_TAG}}/$IMAGE_TAG/" ecs-task-def.json > ecs-task-def-temp.json
+
+      # ─────────────────────────────────────────────────────────────
+      #  Register ECS task definition
+      - name: Register ECS task definition
+        run: |
+          aws ecs register-task-definition \
+            --cli-input-json file://ecs-task-def-temp.json \
+            --family flask-ecr-task-$IMAGE_TAG \
+            --output json
+
+      # ─────────────────────────────────────────────────────────────
+      #  Deploy to ECS
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster flask-ecr-cluster \
+            --service flask-ecr-service \
+            --force-new-deployment \
+            --output json
+
+      # ─────────────────────────────────────────────────────────────
+      #  Verify ECS deployment
+      - name: Verify ECS deployment
+        run: |
+          aws ecs describe-services \
+            --cluster flask-ecr-cluster \
+            --services flask-ecr-service \
+            --query "services[0].deployments" \
+            --output table
