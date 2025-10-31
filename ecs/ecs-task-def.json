@@ -5,7 +5,7 @@
   "containerDefinitions": [
     {
       "name": "flask-app",
-      "image": "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/flask-ecr-demo:{{IMAGE_TAG}}",
+      "image": "255945442255.dkr.ecr.us-east-1.amazonaws.com/flask-ecr-demo:{{IMAGE_TAG}}",
       "portMappings": [
         {
           "containerPort": 5000,
