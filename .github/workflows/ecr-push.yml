@@ -1,20 +1,15 @@
-name: Build and Push to ECR
+name: Test OIDC Role
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  build-and-push:
+  test-oidc:
     runs-on: ubuntu-latest
 
-    env:
-      IMAGE_TAG: ${{ github.sha }}
-      AWS_REGION: us-east-1
-
     permissions:
-      contents: read
       id-token: write
+      contents: read
 
     steps:
       # ─────────────────────────────────────────────────────────────
