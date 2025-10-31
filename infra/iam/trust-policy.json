@@ -8,7 +8,7 @@
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
-        "StringEquals": {
+        "StringLike": {
           "token.actions.githubusercontent.com:sub": "repo:shilparg/flask_ecr_demo:ref:refs/heads/main"
         }
       }
