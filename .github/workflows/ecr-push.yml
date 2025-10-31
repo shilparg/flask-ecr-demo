@@ -10,6 +10,7 @@ jobs:
 
     env:
       IMAGE_TAG: ${{ github.sha }}
+      AWS_REGION: us-east-1
 
     permissions:
       contents: read
@@ -23,7 +24,13 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v3
         with:
           role-to-assume: arn:aws:iam::255945442255:role/GITHUB_OIDC_ROLE
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate AWS credentials
+        run: aws sts get-caller-identity --query "Arn" --output text
+
+      - name: Set IMAGE_URI
+        run: echo "IMAGE_URI=255945442255.dkr.ecr.${AWS_REGION}.amazonaws.com/flask-ecr-demo" >> $GITHUB_ENV
 
       - name: Validate AWS credentials
         run: aws sts get-caller-identity
@@ -33,37 +40,46 @@ jobs:
           aws ecr describe-repositories --repository-names flask-ecr-demo || \
           aws ecr create-repository \
             --repository-name flask-ecr-demo \
-            --region us-east-1 \
+            --region $AWS_REGION \
             --image-scanning-configuration scanOnPush=true \
-            --encryption-configuration encryptionType=AES256
+            --encryption-configuration encryptionType=AES256 \
+            --output json
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and tag Docker image
         run: |
-          IMAGE_URI=255945442255.dkr.ecr.us-east-1.amazonaws.com/flask-ecr-demo 
-          docker build -t $IMAGE_URI:latest -t $IMAGE_URI:${{ github.sha }} .
+          docker build -t $IMAGE_URI:latest -t $IMAGE_URI:$IMAGE_TAG .
 
       - name: Push Docker image to ECR
         run: |
-          IMAGE_URI=255945442255.dkr.ecr.us-east-1.amazonaws.com/flask-ecr-demo
           docker push $IMAGE_URI:latest
-          docker push $IMAGE_URI:${{ github.sha }}
+          docker push $IMAGE_URI:$IMAGE_TAG
 
       - name: Inject SHA into ECS task definition
         run: |
-          IMAGE_TAG=${{ github.sha }}
           sed "s/{{IMAGE_TAG}}/$IMAGE_TAG/" ecs-task-def.json > ecs-task-def-temp.json
 
       - name: Register ECS task definition
         run: |
           aws ecs register-task-definition \
-            --cli-input-json file://ecs-task-def-temp.json
+            --cli-input-json file://ecs-task-def-temp.json \
+            --family flask-ecr-task-$IMAGE_TAG \
+            --output json
 
       - name: Deploy to ECS
         run: |
           aws ecs update-service \
-          --cluster flask-ecr-cluster \
-          --service flask-ecr-service \
-          --force-new-deployment
+            --cluster flask-ecr-cluster \
+            --service flask-ecr-service \
+            --force-new-deployment \
+            --output json
+
+      - name: Verify ECS deployment
+        run: |
+          aws ecs describe-services \
+            --cluster flask-ecr-cluster \
+            --services flask-ecr-service \
+            --query "services[0].deployments" \
+            --output table
