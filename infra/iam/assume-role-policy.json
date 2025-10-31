@@ -1,0 +1,10 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Resource": "arn:aws:iam::255945442255:role/GITHUB_OIDC_ROLE"
+    }
+  ]
+}
